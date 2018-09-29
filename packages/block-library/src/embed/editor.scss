@@ -2,7 +2,7 @@
 	margin: 0;
 	clear: both; // Necessary because we use responsive trickery to set width/height, and therefore the video doesn't intrinsically clear floats like an image does.
 
-	// Apply a min-width, or the thing can collapse when floated.
+	// Apply a min-width, or the embed can collapse when floated.
 	min-width: $break-mobile / 2;
 
 	&.is-loading {
