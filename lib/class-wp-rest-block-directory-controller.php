@@ -149,6 +149,56 @@ class WP_REST_Block_Directory_Controller extends WP_REST_Controller {
 	}
 
 	/**
+	 * Checks whether a given request has permission to install and activate plugins.
+	 *
+	 * @since 6.5.0
+	 *
+	 * @param WP_REST_Request $request Full details about the request.
+	 * @return WP_Error|bool True if the request has permission, WP_Error object otherwise.
+	 */
+	public function install_items_permissions_check( $request ) {
+		$plugin = $request->get_param( 'slug' );
+
+		if (
+			! current_user_can( 'install_plugins' ) ||
+			! current_user_can( 'activate_plugins' ) ||
+			! current_user_can( 'activate_plugin', $plugin )
+		) {
+			return new WP_Error(
+				'rest_user_cannot_view',
+				__( 'Sorry, you are not allowed to install blocks.', 'gutenberg' )
+			);
+		}
+
+		return true;
+	}
+
+	/**
+	 * Checks whether a given request has permission to remove/deactivate plugins.
+	 *
+	 * @since 6.5.0
+	 *
+	 * @param WP_REST_Request $request Full details about the request.
+	 * @return WP_Error|bool True if the request has permission, WP_Error object otherwise.
+	 */
+	public function delete_items_permissions_check( $request ) {
+		$plugin = $request->get_param( 'slug' );
+
+		if (
+			! current_user_can( 'delete_plugins' ) ||
+			! current_user_can( 'deactivate_plugins' ) ||
+			! current_user_can( 'deactivate_plugin', $plugin )
+		) {
+			return new WP_Error(
+				'rest_user_cannot_edit',
+				__( 'Sorry, you are not allowed to uninstall blocks.', 'gutenberg' )
+			);
+		}
+
+		return true;
+	}
+
+	/**
 	 * Installs and activates a plugin
 	 *
 	 * @since 6.5.0
