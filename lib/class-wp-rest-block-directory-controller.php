@@ -182,7 +182,7 @@ class WP_REST_Block_Directory_Controller extends WP_REST_Controller {
 		);
 
 		if ( is_wp_error( $api ) ) {
-			return $api;
+			return new WP_Error( $api->get_error_code(), $api->get_error_message() );
 		}
 
 		$skin     = new WP_Ajax_Upgrader_Skin();
