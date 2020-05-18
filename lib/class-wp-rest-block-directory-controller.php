@@ -1,7 +1,7 @@
 <?php
 /**
  * Start: Include for phase 2
- * Block Directory REST API: WP_REST_Blocks_Controller class
+ * Block Directory REST API: WP_REST_Block_Directory_Controller class
  *
  * @package gutenberg
  * @since 6.5.0
@@ -116,7 +116,8 @@ class WP_REST_Block_Directory_Controller extends WP_REST_Controller {
 		) {
 			return new WP_Error(
 				'rest_user_cannot_view',
-				__( 'Sorry, you are not allowed to install blocks.', 'gutenberg' )
+				__( 'Sorry, you are not allowed to install blocks.', 'gutenberg' ),
+				array( 'status' => rest_authorization_required_code() )
 			);
 		}
 
@@ -140,58 +141,9 @@ class WP_REST_Block_Directory_Controller extends WP_REST_Controller {
 			! current_user_can( 'deactivate_plugin', $plugin )
 		) {
 			return new WP_Error(
-				'rest_user_cannot_edit',
-				__( 'Sorry, you are not allowed to uninstall blocks.', 'gutenberg' )
-			);
-		}
-
-		return true;
-	}
-
-	/**
-	 * Checks whether a given request has permission to install and activate plugins.
-	 *
-	 * @since 6.5.0
-	 *
-	 * @param WP_REST_Request $request Full details about the request.
-	 * @return WP_Error|bool True if the request has permission, WP_Error object otherwise.
-	 */
-	public function install_items_permissions_check( $request ) {
-		$plugin = $request->get_param( 'slug' );
-
-		if (
-			! current_user_can( 'install_plugins' ) ||
-			! current_user_can( 'activate_plugins' ) ||
-			! current_user_can( 'activate_plugin', $plugin )
-		) {
-			return new WP_Error(
-				'rest_user_cannot_view',
-				__( 'Sorry, you are not allowed to install blocks.', 'gutenberg' )
-			);
-		}
-
-		return true;
-	}
-
-	/**
-	 * Checks whether a given request has permission to remove/deactivate plugins.
-	 *
-	 * @since 6.5.0
-	 *
-	 * @param WP_REST_Request $request Full details about the request.
-	 * @return WP_Error|bool True if the request has permission, WP_Error object otherwise.
-	 */
-	public function delete_items_permissions_check( $request ) {
-		$plugin = $request->get_param( 'slug' );
-
-		if (
-			! current_user_can( 'delete_plugins' ) ||
-			! current_user_can( 'deactivate_plugins' ) ||
-			! current_user_can( 'deactivate_plugin', $plugin )
-		) {
-			return new WP_Error(
-				'rest_user_cannot_edit',
-				__( 'Sorry, you are not allowed to uninstall blocks.', 'gutenberg' )
+				'rest_user_cannot_delete',
+				__( 'Sorry, you are not allowed to uninstall blocks.', 'gutenberg' ),
+				array( 'status' => rest_authorization_required_code() )
 			);
 		}
 
@@ -232,6 +184,7 @@ class WP_REST_Block_Directory_Controller extends WP_REST_Controller {
 		);
 
 		if ( is_wp_error( $api ) ) {
+			$api->add_data( array( 'status' => 500 ) );
 			return $api;
 		}
 
@@ -257,9 +210,9 @@ class WP_REST_Block_Directory_Controller extends WP_REST_Controller {
 			global $wp_filesystem;
 			// Pass through the error from WP_Filesystem if one was raised.
 			if ( $wp_filesystem instanceof WP_Filesystem_Base && is_wp_error( $wp_filesystem->errors ) && $wp_filesystem->errors->has_errors() ) {
-				return new WP_Error( 'unable_to_connect_to_filesystem', esc_html( $wp_filesystem->errors->get_error_message() ) );
+				return new WP_Error( 'unable_to_connect_to_filesystem', esc_html( $wp_filesystem->errors->get_error_message() ), array( 'status' => 500 ) );
 			}
-			return new WP_Error( 'unable_to_connect_to_filesystem', __( 'Unable to connect to the filesystem. Please confirm your credentials.', 'gutenberg' ) );
+			return new WP_Error( 'unable_to_connect_to_filesystem', __( 'Unable to connect to the filesystem. Please confirm your credentials.', 'gutenberg' ), array( 'status' => 500 ) );
 		}
 
 		// Find the plugin to activate it.
@@ -291,7 +244,7 @@ class WP_REST_Block_Directory_Controller extends WP_REST_Controller {
 		$slug = trim( $request->get_param( 'slug' ) );
 
 		if ( ! $slug ) {
-			return new WP_Error( 'slug_not_provided', 'Valid slug not provided.' );
+			return new WP_Error( 'slug_not_provided', 'Valid slug not provided.', array( 'status' => 400 ) );
 		}
 
 		// Verify filesystem is accessible first.
@@ -303,7 +256,7 @@ class WP_REST_Block_Directory_Controller extends WP_REST_Controller {
 		$plugin_files = get_plugins( '/' . $slug );
 
 		if ( ! $plugin_files ) {
-			return new WP_Error( 'block_not_found', 'Valid slug not provided.' );
+			return new WP_Error( 'block_not_found', 'Valid slug not provided.', array( 'status' => 400 ) );
 		}
 
 		$plugin_files = array_keys( $plugin_files );
@@ -347,6 +300,11 @@ class WP_REST_Block_Directory_Controller extends WP_REST_Controller {
 			)
 		);
 
+		if ( is_wp_error( $response ) ) {
+			$response->add_data( array( 'status' => 500 ) );
+			return $response;
+		}
+
 		$result = array();
 
 		foreach ( $response->plugins as $plugin ) {
@@ -354,7 +312,8 @@ class WP_REST_Block_Directory_Controller extends WP_REST_Controller {
 
 			// Only show uninstalled blocks.
 			if ( empty( $installed_plugins ) ) {
-				$result[] = self::parse_block_metadata( $plugin );
+				$data = $this->prepare_item_for_response( $plugin, $request );
+				$result[] = $this->prepare_response_for_collection( $data );
 			}
 		}
 
@@ -385,56 +344,174 @@ class WP_REST_Block_Directory_Controller extends WP_REST_Controller {
 			return true;
 		}
 
-		return new WP_Error( 'fs_unavailable', __( 'The filesystem is currently unavailable for installing blocks.', 'gutenberg' ) );
+		return new WP_Error( 'fs_unavailable', __( 'The filesystem is currently unavailable for installing blocks.' ) );
 	}
 
 	/**
-	 * Parse block metadata for a block
+	 * Parse block metadata for a block, and prepare it for an API repsonse.
 	 *
 	 * @since 6.5.0
 	 *
 	 * @param WP_Object $plugin The plugin metadata.
+	 * @param WP_REST_Request $request Request object.
 	 * @return WP_Error|WP_REST_Response Response object on success, or WP_Error object on failure.
 	 */
-	private static function parse_block_metadata( $plugin ) {
-		$block = new stdClass();
+	public function prepare_item_for_response( $plugin, $request ) {
 
 		// There might be multiple blocks in a plugin. Only the first block is mapped.
 		$block_data   = reset( $plugin['blocks'] );
-		$block->name  = $block_data['name'];
-		$block->title = $block_data['title'];
-		if ( ! $block->title ) {
-			$block->title = $plugin['name'];
-		}
 
-		// Plugin's description, not description in block.json.
-		$block->description = wp_trim_words( wp_strip_all_tags( $plugin['description'] ), 30, '...' );
-
-		$block->id                  = $plugin['slug'];
-		$block->rating              = $plugin['rating'] / 20;
-		$block->rating_count        = $plugin['num_ratings'];
-		$block->active_installs     = $plugin['active_installs'];
-		$block->author_block_rating = $plugin['author_block_rating'] / 20;
-		$block->author_block_count  = (int) $plugin['author_block_count'];
-
-		// Plugin's author, not author in block.json.
-		$block->author = wp_strip_all_tags( $plugin['author'] );
-
-		// Plugin's icons or icon in block.json.
-		$block->icon = isset( $plugin['icons']['1x'] ) ? $plugin['icons']['1x'] : 'block-default';
-
-		$block->assets = array();
-		foreach ( $plugin['block_assets'] as $asset ) {
-			// TODO: Return from API, not client-set.
-			$block->assets[] = 'https://plugins.svn.wordpress.org/' . $plugin['slug'] . $asset;
-		}
-
-		$block->humanized_updated = sprintf(
-			/* translators: %s: Human-readable time difference. */
-			__( '%s ago', 'gutenberg' ),
-			human_time_diff( strtotime( $plugin['last_updated'] ), current_time( 'timestamp' ) )
+		// A data array containing the properties we'll return.
+		$block = array(
+			'name'                  => $block_data['name'],
+			'title'                 => ( $block_data['title'] ? $block_data['title'] : $plugin['name'] ),
+			'description'           => wp_trim_words( $plugin['description'], 30, '...' ),
+			'id'                    => $plugin['slug'],
+			'rating'                => $plugin['rating'] / 20,
+			'rating_count'          => intval( $plugin['num_ratings'] ),
+			'active_installs'       => intval( $plugin['active_installs'] ),
+			'author_block_rating'   => $plugin['author_block_rating'] / 20,
+			'author_block_count'    => intval( $plugin['author_block_count'] ),
+			'author'                => wp_strip_all_tags( $plugin['author'] ),
+			'icon'                  => ( isset( $plugin['icons']['1x'] ) ? $plugin['icons']['1x'] : 'block-default' ),
+			'assets'                => array(),
+			'humanized_updated'     => sprintf(
+				/* translators: %s: Human-readable time difference. */
+				__( '%s ago' ),
+				human_time_diff( strtotime( $plugin['last_updated'] ), current_time( 'timestamp' ) )
+			),
 		);
 
-		return $block;
+		foreach ( $plugin['block_assets'] as $asset ) {
+			// TODO: Return from API, not client-set.
+			$block[ 'assets' ][] = 'https://plugins.svn.wordpress.org/' . $plugin['slug'] . $asset;
+		}
+
+		$response = new WP_REST_Response( $block );
+
+		return $response;
 	}
+
+	/**
+	 * Retrieves the theme's schema, conforming to JSON Schema.
+	 *
+	 * @since 5.5.0
+	 *
+	 * @return array Item schema data.
+	 */
+	public function get_item_schema() {
+		$this->schema = array(
+			'$schema'    => 'http://json-schema.org/draft-04/schema#',
+			'title'      => 'block-directory-item',
+			'type'       => 'object',
+			'properties' => array(
+				'name'                => array(
+					'description'       => __( "The block name, in namespace/block-name format." ),
+					'type'              => 'string',
+					'context'           => array( 'view' ),
+				),
+				'title'               => array(
+					'description'       => __( "The block title, in human readable format." ),
+					'type'              => 'string',
+					'context'           => array( 'view' ),
+				),
+				'description'         => array(
+					'description'       => __( "A short description of the block, in human readable format." ),
+					'type'              => 'string',
+					'context'           => array( 'view' ),
+				),
+				'id'                  => array(
+					'description'       => __( "The block slug." ),
+					'type'              => 'string',
+					'context'           => array( 'view' ),
+				),
+				'rating'              => array(
+					'description'       => __( "The star rating of the block." ),
+					'type'              => 'integer',
+					'context'           => array( 'view' ),
+				),
+				'rating_count'        => array(
+					'description'       => __( "The number of ratings." ),
+					'type'              => 'integer',
+					'context'           => array( 'view' ),
+				),
+				'active_installs'     => array(
+					'description'       => __( "The number sites that have activated this block." ),
+					'type'              => 'string',
+					'context'           => array( 'view' ),
+				),
+				'author_block_rating' => array(
+					'description'       => __( "The average rating of blocks published by the same author." ),
+					'type'              => 'integer',
+					'context'           => array( 'view' ),
+				),
+				'author_block_count'  => array(
+					'description'       => __( "The number of blocks published by the same author." ),
+					'type'              => 'integer',
+					'context'           => array( 'view' ),
+				),
+				'author'              => array(
+					'description'       => __( "The WordPress.org username of the block author." ),
+					'type'              => 'string',
+					'context'           => array( 'view' ),
+				),
+				'icon' => array(
+					'description'     => __( "The block icon." ),
+					'type'              => 'string',
+					'format'            => 'uri',
+					'context'           => array( 'view' ),
+				),
+				'humanized_updated'   => array(
+					'description'       => __( "The date when the block was last updated, in fuzzy human readable format." ),
+					'type'              => 'string',
+					'context'           => array( 'view' ),
+				),
+				'assets'              => array(
+					'description'       => __( 'An object representing the block CSS and JavaScript assets.' ),
+					'type'              => 'array',
+					'context'           => array( 'view' ),
+					'readonly'          => true,
+					'items'             => array(
+						'type'            => 'string',
+						'format'          => 'uri',
+					),
+
+				),
+
+			),
+		);
+
+		return $this->schema;
+	}
+
+
+	/**
+	 * Retrieves the search params for the blocks collection.
+	 *
+	 * @since 5.5.0
+	 *
+	 * @return array Collection parameters.
+	 */
+	public function get_collection_params() {
+		$query_params = parent::get_collection_params();
+
+		$query_params['term'] = array(
+			'description'       => __( 'Limit result set to blocks matching the search term.' ),
+			'type'              => 'array',
+			'term'             => array(
+				'type' => 'string',
+			),
+			'required'          => true,
+		);
+
+		/**
+		 * Filter collection parameters for the block directory controller.
+		 *
+		 * @since 5.0.0
+		 *
+		 * @param array $query_params JSON Schema-formatted collection parameters.
+		 */
+		return apply_filters( 'rest_block_directory_collection_params', $query_params );
+	}
+
 }
